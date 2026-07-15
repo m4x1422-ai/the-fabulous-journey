@@ -195,20 +195,15 @@ footer{background:var(--navy);color:#9fb6cb;text-align:center;padding:44px 20px;
 
 <section class="block" id="budget">
   <div class="shead"><div class="kick">Money</div><h2>Live Budget &amp; Expenses</h2>
-  <p>Add spending, tweak any budget, see totals instantly — saved on this device, no spreadsheet needed. In SAR.</p></div>
+  <p>Straight from Ibrahim&rsquo;s Money app — every expense is logged once, there, and appears here automatically. In SAR.</p></div>
   <div id="bkpis" class="bkpis"></div>
   <div class="bwrap">
-    <div class="bpanel"><div class="ph"><span>Budget by category — edit any number</span><button class="bresetx" id="bReset">Reset to plan</button></div><div style="overflow:auto"><table class="btable" id="btable"></table></div></div>
+    <div class="bpanel"><div class="ph"><span>Budget by category</span><button class="bresetx" id="bReset">↻ Refresh</button></div><div style="overflow:auto"><table class="btable" id="btable"></table></div></div>
     <div>
-      <div class="bpanel" style="margin-bottom:22px"><div class="ph"><span>➕ Add an expense</span></div>
-        <div class="badd"><div class="row2"><input type="date" id="eDate"><input type="number" id="eAmt" placeholder="Amount (SAR)" min="0" step="0.01"></div>
-          <select id="eCat"></select><input type="text" id="eDesc" placeholder="Description (optional)">
-          <select id="ePay"><option>Credit Card</option><option>Apple Pay</option><option>Cash</option><option>Debit Card</option><option>Other</option></select>
-          <button id="eAdd">Add expense</button></div></div>
       <div class="bpanel"><div class="ph"><span>Recent expenses</span><span id="eCount" style="font-weight:600;font-size:12px;opacity:.85"></span></div><div class="elist" id="elist"></div></div>
     </div>
   </div>
-  <div class="bsave">💾 Saved automatically on this device.</div>
+  <div class="bsave" id="bstatus">⏳ Loading from the Money app…</div>
 </section>
 
 <section class="block" id="transit">
@@ -582,30 +577,39 @@ DAYS.forEach((d,i)=>{const blocks=d.b.map(x=>'<div class="blk"><div class="bt">'
 document.getElementById('openAll').onclick=()=>document.querySelectorAll('.dy').forEach(x=>x.open=true);
 document.getElementById('closeAll').onclick=()=>document.querySelectorAll('.dy').forEach(x=>x.open=false);
 
-/* BUDGET */
-const BSTORE='alpineBudget2026v2';
-const BCATS_DEFAULT=[["Flights (Etihad, booked)",6400],["Accommodation (5 hotels, booked)",10678],["Car Rental (16 days)",5500],["Fuel / Petrol",1200],["Tolls, Vignettes & Alpine Roads",450],["Parking",700],["Munich Transit & Day-Trip Trains",700],["Dining & Food",6500],["Anniversary Dinner (HeLeni)",650],["Tandem Skydive (2 pax)",3600],["Europa-Park (2 tickets)",560],["Attractions, Waterfalls, Gorges & Lakes",1600],["Spa, Crystal Worlds & Museums",1100],["Local Transport & Activcards",600],["Shopping & Souvenirs",2000],["SIM / eSIM / Data",250],["Travel Insurance (2 pax)",400],["Miscellaneous / Buffer",1500]];
-const BSEED=[{id:1,date:"2026-04-05",cat:"Flights (Etihad, booked)",desc:"Etihad ref 8JECBB",amt:6400,pay:"Credit Card"},{id:2,date:"2026-05-10",cat:"Accommodation (5 hotels, booked)",desc:"Munich hotel",amt:1161.21,pay:"Credit Card"},{id:3,date:"2026-06-17",cat:"Accommodation (5 hotels, booked)",desc:"Austria hotel",amt:2436.86,pay:"Apple Pay"}];
-function bDefault(){return {cats:BCATS_DEFAULT.map(c=>({name:c[0],budget:c[1]})),expenses:BSEED.map(e=>Object.assign({},e))};}
-function bload(){try{const d=JSON.parse(localStorage.getItem(BSTORE));if(d&&d.cats&&d.expenses)return d;}catch(e){}return bDefault();}
-function bsave(){try{localStorage.setItem(BSTORE,JSON.stringify(B));}catch(e){}}
-let B=bload();const sar=n=>'SAR '+Math.round(n).toLocaleString();
+/* BUDGET — live, read-only mirror of the Money app (single source of truth). */
+const TRIP_API='https://ibrahim-money-tracker.m4x1422.workers.dev/api/trip';
+let B={cats:[],expenses:[]};
+const sar=n=>'SAR '+Math.round(n).toLocaleString();
 function spentOf(n){return B.expenses.filter(e=>e.cat===n).reduce((a,e)=>a+(+e.amt||0),0);}
 function daysToTrip(){return Math.max(0,Math.ceil((new Date(2026,7,15)-new Date())/86400000));}
 function kpi(l,v,c){return '<div class="bkpi '+c+'"><div class="l">'+l+'</div><div class="v">'+v+'</div></div>';}
+function bstatus(t){const el=document.getElementById('bstatus');if(el)el.textContent=t;}
 function brender(){const tb=B.cats.reduce((a,c)=>a+(+c.budget||0),0),ts=B.expenses.reduce((a,e)=>a+(+e.amt||0),0),rem=tb-ts,pct=tb?ts/tb*100:0;
  document.getElementById('bkpis').innerHTML=kpi('Total Budget',sar(tb),'')+kpi('Spent',sar(ts),'red')+kpi('Remaining',sar(rem),'green')+kpi('% Spent',pct.toFixed(1)+'%','gold')+kpi('Days to Trip',daysToTrip(),'');
  let rows='<tr><th>Category & progress</th><th class="bnum">Budget</th><th class="bnum">Spent</th><th class="bnum">Left</th></tr>';
- B.cats.forEach((c,i)=>{const sp=spentOf(c.name),lf=c.budget-sp,p=c.budget?sp/c.budget*100:0,col=p>100?'#c0392b':p>=80?'#e67e22':'#2f9e6f';rows+='<tr><td class="cat">'+c.name+'<div class="minibar"><i style="width:'+Math.min(100,p)+'%;background:'+col+'"></i></div></td><td class="bnum"><input class="binput" type="number" min="0" step="10" data-i="'+i+'" value="'+c.budget+'"></td><td class="bnum">'+sar(sp)+'</td><td class="bnum" style="color:'+(lf<0?'#c0392b':'#2f9e6f')+';font-weight:800">'+sar(lf)+'</td></tr>';});
+ B.cats.forEach(c=>{const sp=spentOf(c.name),bd=+c.budget||0,lf=bd-sp,p=bd?sp/bd*100:0,col=p>100?'#c0392b':p>=80?'#e67e22':'#2f9e6f';rows+='<tr><td class="cat">'+c.name+'<div class="minibar"><i style="width:'+Math.min(100,p)+'%;background:'+col+'"></i></div></td><td class="bnum">'+sar(bd)+'</td><td class="bnum">'+sar(sp)+'</td><td class="bnum" style="color:'+(lf<0?'#c0392b':'#2f9e6f')+';font-weight:800">'+sar(lf)+'</td></tr>';});
  rows+='<tr style="background:#0e2236"><td class="cat" style="color:#fff;font-weight:800">TOTAL</td><td class="bnum" style="color:#fff;font-weight:800">'+sar(tb)+'</td><td class="bnum" style="color:#fff;font-weight:800">'+sar(ts)+'</td><td class="bnum" style="color:#fff;font-weight:800">'+sar(rem)+'</td></tr>';
- document.getElementById('btable').innerHTML=rows;document.getElementById('eCat').innerHTML=B.cats.map(c=>'<option>'+c.name+'</option>').join('');
- const el=document.getElementById('elist');el.innerHTML=B.expenses.length?B.expenses.slice().reverse().map(e=>'<div class="eitem"><div class="ed"><b>'+(e.desc||e.cat)+'</b><br><span style="color:#9aa6b1">'+e.date+' · '+e.cat+'</span></div><span class="ea">'+sar(e.amt)+'</span><span class="ex" data-id="'+e.id+'">✕</span></div>').join(''):'<div style="padding:18px;color:#9aa6b1;font-size:13px">No expenses yet.</div>';
+ document.getElementById('btable').innerHTML=rows;
+ const el=document.getElementById('elist');
+ el.innerHTML=B.expenses.length?B.expenses.map(e=>'<div class="eitem"><div class="ed"><b>'+(e.desc||e.cat)+'</b><br><span style="color:#9aa6b1">'+e.date+' · '+e.cat+'</span></div><span class="ea">'+sar(e.amt)+'</span></div>').join(''):'<div style="padding:18px;color:#9aa6b1;font-size:13px">No expenses yet.</div>';
  document.getElementById('eCount').textContent=B.expenses.length+' logged';}
-document.getElementById('btable').addEventListener('change',e=>{if(e.target.classList.contains('binput')){B.cats[+e.target.dataset.i].budget=+e.target.value||0;bsave();brender();}});
-document.getElementById('elist').addEventListener('click',e=>{if(e.target.classList.contains('ex')){const id=+e.target.dataset.id;B.expenses=B.expenses.filter(x=>x.id!==id);bsave();brender();}});
-document.getElementById('eAdd').onclick=()=>{const a=document.getElementById('eAmt'),v=+a.value;if(!v){a.focus();return;}B.expenses.push({id:Date.now(),date:document.getElementById('eDate').value||new Date().toISOString().slice(0,10),cat:document.getElementById('eCat').value,desc:document.getElementById('eDesc').value.trim(),amt:v,pay:document.getElementById('ePay').value});bsave();a.value='';document.getElementById('eDesc').value='';brender();};
-document.getElementById('bReset').onclick=()=>{if(confirm('Reset budgets and expenses to the plan?')){B=bDefault();bsave();brender();}};
-document.getElementById('eDate').value=new Date().toISOString().slice(0,10);brender();
+async function bfetch(){
+ bstatus('⏳ Loading from the Money app…');
+ try{
+  const r=await fetch(TRIP_API+'?t='+Date.now(),{cache:'no-store'});
+  if(!r.ok) throw 0;
+  const d=await r.json();
+  if(!d||!d.categories) throw 0;
+  B={cats:d.categories.map(c=>({name:c.name,budget:+c.budget||0})),
+     expenses:(d.expenses||[]).map((e,i)=>({id:i+1,date:e.date,cat:e.category,desc:e.desc,amt:+e.amount||0}))};
+  brender();
+  bstatus('🔄 Live from the Money app · updated '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
+ }catch(err){ brender(); bstatus('⚠️ Could not reach the Money app — tap ↻ Refresh to try again.'); }
+}
+document.getElementById('bReset').onclick=bfetch;
+bfetch();
+
 
 /* CHECKLISTS */
 const STORE='alpineLoop2026Checksv2';
